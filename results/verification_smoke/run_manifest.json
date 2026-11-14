@@ -1,0 +1,117 @@
+{
+  "dataset_mode": "synthetic_verification_fixture",
+  "is_uci_empirical_run": false,
+  "input_workbook_path": "data/fixtures/synthetic_retail_two_sheet_fixture.xlsx",
+  "input_workbook_sha256": "857f4f80fb1592a62adb55c14bda3ef24f944d26863c0f67435a0d170d6cb244",
+  "cleaning_audit": {
+    "raw_rows_total": 30030,
+    "rows_per_sheet": {
+      "Year 2009-2010": 15083,
+      "Year 2010-2011": 14947
+    },
+    "dropped_missing_required": 0,
+    "dropped_exact_duplicate_rows": 883,
+    "dropped_cancellations_and_adjustments": 553,
+    "dropped_nonpositive_quantity": 190,
+    "dropped_nonpositive_price": 0,
+    "dropped_admin_stock_codes": 360,
+    "valid_rows_before_pair_dedup": 28044,
+    "dropped_duplicate_invoice_sku_lines": 0,
+    "valid_unique_invoice_sku_pairs": 28044,
+    "retained_missing_customer_id_pairs": 6320,
+    "weekend_folded_pairs": 1592,
+    "complete_weeks_count": 105,
+    "complete_weekdays_count": 525,
+    "first_complete_monday": "2009-12-07",
+    "last_complete_friday": "2011-12-09",
+    "sql_engine_used": "sqlite3_compat"
+  },
+  "capacity_calibration": {
+    "initial_train_median_daily_lines": 52.0,
+    "core_daily_capacity_C_lines": 36,
+    "flex_block_productivity_q_lines": 8,
+    "synthetic_disclaimer": "C and q are synthetic capacity parameters calibrated solely from initial-training median daily booked order lines. Real warehouse pick rates and staffing are unobserved."
+  },
+  "forecasting": {
+    "selected_ridge_alpha": 500.0,
+    "validation_alpha_grid_wape": {
+      "0.01": 0.26959987432960386,
+      "0.1": 0.26955616764268614,
+      "1.0": 0.26920537841863224,
+      "5.0": 0.26850655214470404,
+      "10.0": 0.2682022021864872,
+      "25.0": 0.2677172831199231,
+      "50.0": 0.267132883065632,
+      "100.0": 0.2673076734173048,
+      "250.0": 0.26644537568503945,
+      "500.0": 0.2663229425920085,
+      "1000.0": 0.26670497432021734
+    },
+    "validation_prev_week_wape": 0.35763546798029555,
+    "validation_ridge_wape": 0.2663229425920085,
+    "test_prev_week_wape": 0.38461538461538464,
+    "test_ridge_wape": 0.2944629827715828,
+    "ridge_backend_used": "scipy_closed_form"
+  },
+  "brute_force_verification_week1": {
+    "feasible_schedules_checked": 381,
+    "milp_blocks": [
+      2,
+      3,
+      1,
+      3,
+      1
+    ],
+    "milp_objective": 29.65091400750599,
+    "enumerator_optimal_objective": 29.650914007505996,
+    "milp_schedule_in_enumerator_optima": true,
+    "solver_backend_used": "scipy:highs"
+  },
+  "bootstrap_exploratory_95ci": {
+    "flat_minus_ridge_milp": {
+      "comparison_name": "flat_minus_ridge_milp",
+      "n_weeks": 12,
+      "block_length_weeks": 3,
+      "n_resamples": 10000,
+      "confidence_level": 0.95,
+      "observed_mean_weekly_diff": 11.25,
+      "observed_total_diff": 135.0,
+      "bootstrap_se_weekly_diff": 10.08200007076905,
+      "ci_lower_weekly_diff": -9.416666666666666,
+      "ci_upper_weekly_diff": 30.0,
+      "ci_lower_total_diff": -113.0,
+      "ci_upper_total_diff": 360.0,
+      "prob_positive_improvement": 0.8645
+    },
+    "flat_minus_prev_week_milp": {
+      "comparison_name": "flat_minus_prev_week_milp",
+      "n_weeks": 12,
+      "block_length_weeks": 3,
+      "n_resamples": 10000,
+      "confidence_level": 0.95,
+      "observed_mean_weekly_diff": -4.0,
+      "observed_total_diff": -48.0,
+      "bootstrap_se_weekly_diff": 13.214221100536344,
+      "ci_lower_weekly_diff": -29.333333333333332,
+      "ci_upper_weekly_diff": 21.833333333333332,
+      "ci_lower_total_diff": -352.0,
+      "ci_upper_total_diff": 262.0,
+      "prob_positive_improvement": 0.3836
+    },
+    "prev_week_milp_minus_ridge_milp": {
+      "comparison_name": "prev_week_milp_minus_ridge_milp",
+      "n_weeks": 12,
+      "block_length_weeks": 3,
+      "n_resamples": 10000,
+      "confidence_level": 0.95,
+      "observed_mean_weekly_diff": 15.25,
+      "observed_total_diff": 183.0,
+      "bootstrap_se_weekly_diff": 8.280281811727106,
+      "ci_lower_weekly_diff": -0.75,
+      "ci_upper_weekly_diff": 31.25,
+      "ci_lower_total_diff": -9.0,
+      "ci_upper_total_diff": 375.0,
+      "prob_positive_improvement": 0.9654
+    }
+  }
+}

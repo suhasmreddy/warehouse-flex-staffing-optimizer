@@ -1,0 +1,47 @@
+{
+  "flat_minus_ridge_milp": {
+    "comparison_name": "flat_minus_ridge_milp",
+    "n_weeks": 12,
+    "block_length_weeks": 3,
+    "n_resamples": 10000,
+    "confidence_level": 0.95,
+    "observed_mean_weekly_diff": 11.25,
+    "observed_total_diff": 135.0,
+    "bootstrap_se_weekly_diff": 10.08200007076905,
+    "ci_lower_weekly_diff": -9.416666666666666,
+    "ci_upper_weekly_diff": 30.0,
+    "ci_lower_total_diff": -113.0,
+    "ci_upper_total_diff": 360.0,
+    "prob_positive_improvement": 0.8645
+  },
+  "flat_minus_prev_week_milp": {
+    "comparison_name": "flat_minus_prev_week_milp",
+    "n_weeks": 12,
+    "block_length_weeks": 3,
+    "n_resamples": 10000,
+    "confidence_level": 0.95,
+    "observed_mean_weekly_diff": -4.0,
+    "observed_total_diff": -48.0,
+    "bootstrap_se_weekly_diff": 13.214221100536344,
+    "ci_lower_weekly_diff": -29.333333333333332,
+    "ci_upper_weekly_diff": 21.833333333333332,
+    "ci_lower_total_diff": -352.0,
+    "ci_upper_total_diff": 262.0,
+    "prob_positive_improvement": 0.3836
+  },
+  "prev_week_milp_minus_ridge_milp": {
+    "comparison_name": "prev_week_milp_minus_ridge_milp",
+    "n_weeks": 12,
+    "block_length_weeks": 3,
+    "n_resamples": 10000,
+    "confidence_level": 0.95,
+    "observed_mean_weekly_diff": 15.25,
+    "observed_total_diff": 183.0,
+    "bootstrap_se_weekly_diff": 8.280281811727106,
+    "ci_lower_weekly_diff": -0.75,
+    "ci_upper_weekly_diff": 31.25,
+    "ci_lower_total_diff": -9.0,
+    "ci_upper_total_diff": 375.0,
+    "prob_positive_improvement": 0.9654
+  }
+}

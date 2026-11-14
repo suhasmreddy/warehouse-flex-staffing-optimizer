@@ -1,0 +1,117 @@
+{
+  "dataset_mode": "uci_online_retail_ii",
+  "is_uci_empirical_run": true,
+  "input_workbook_path": "data/raw/online_retail_II.xlsx",
+  "input_workbook_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+  "cleaning_audit": {
+    "raw_rows_total": 1067371,
+    "rows_per_sheet": {
+      "Year 2010-2011": 541910,
+      "Year 2009-2010": 525461
+    },
+    "dropped_missing_required": 0,
+    "dropped_exact_duplicate_rows": 34337,
+    "dropped_cancellations_and_adjustments": 19110,
+    "dropped_nonpositive_quantity": 3393,
+    "dropped_nonpositive_price": 2621,
+    "dropped_admin_stock_codes": 4574,
+    "valid_rows_before_pair_dedup": 1003336,
+    "dropped_duplicate_invoice_sku_lines": 11302,
+    "valid_unique_invoice_sku_pairs": 992034,
+    "retained_missing_customer_id_pairs": 225955,
+    "weekend_folded_pairs": 128945,
+    "complete_weeks_count": 105,
+    "complete_weekdays_count": 525,
+    "first_complete_monday": "2009-12-07",
+    "last_complete_friday": "2011-12-09",
+    "sql_engine_used": "duckdb"
+  },
+  "capacity_calibration": {
+    "initial_train_median_daily_lines": 1514.0,
+    "core_daily_capacity_C_lines": 1060,
+    "flex_block_productivity_q_lines": 227,
+    "synthetic_disclaimer": "C and q are synthetic capacity parameters calibrated solely from initial-training median daily booked order lines. Real warehouse pick rates and staffing are unobserved."
+  },
+  "forecasting": {
+    "selected_ridge_alpha": 50.0,
+    "validation_alpha_grid_wape": {
+      "0.01": 0.3043024107135195,
+      "0.1": 0.30259593493146475,
+      "1.0": 0.28788688233662807,
+      "5.0": 0.25445378411157593,
+      "10.0": 0.23996801241823645,
+      "25.0": 0.2287891869510985,
+      "50.0": 0.22417307245485574,
+      "100.0": 0.2257983938754149,
+      "250.0": 0.23166012437257258,
+      "500.0": 0.24359681498372535,
+      "1000.0": 0.25826763061452845
+    },
+    "validation_prev_week_wape": 0.32651166968576434,
+    "validation_ridge_wape": 0.22417307245485574,
+    "test_prev_week_wape": 0.21017001760648174,
+    "test_ridge_wape": 0.19561364906573242,
+    "ridge_backend_used": "scikit-learn"
+  },
+  "brute_force_verification_week1": {
+    "feasible_schedules_checked": 381,
+    "milp_blocks": [
+      4,
+      4,
+      2,
+      0,
+      0
+    ],
+    "milp_objective": 15508.80291136257,
+    "enumerator_optimal_objective": 15508.80291136257,
+    "milp_schedule_in_enumerator_optima": true,
+    "solver_backend_used": "pyomo:appsi_highs"
+  },
+  "bootstrap_exploratory_95ci": {
+    "flat_minus_ridge_milp": {
+      "comparison_name": "flat_minus_ridge_milp",
+      "n_weeks": 12,
+      "block_length_weeks": 3,
+      "n_resamples": 10000,
+      "confidence_level": 0.95,
+      "observed_mean_weekly_diff": 2724.0,
+      "observed_total_diff": 32688.0,
+      "bootstrap_se_weekly_diff": 0.0,
+      "ci_lower_weekly_diff": 2724.0,
+      "ci_upper_weekly_diff": 2724.0,
+      "ci_lower_total_diff": 32688.0,
+      "ci_upper_total_diff": 32688.0,
+      "prob_positive_improvement": 1.0
+    },
+    "flat_minus_prev_week_milp": {
+      "comparison_name": "flat_minus_prev_week_milp",
+      "n_weeks": 12,
+      "block_length_weeks": 3,
+      "n_resamples": 10000,
+      "confidence_level": 0.95,
+      "observed_mean_weekly_diff": 2724.0,
+      "observed_total_diff": 32688.0,
+      "bootstrap_se_weekly_diff": 0.0,
+      "ci_lower_weekly_diff": 2724.0,
+      "ci_upper_weekly_diff": 2724.0,
+      "ci_lower_total_diff": 32688.0,
+      "ci_upper_total_diff": 32688.0,
+      "prob_positive_improvement": 1.0
+    },
+    "prev_week_milp_minus_ridge_milp": {
+      "comparison_name": "prev_week_milp_minus_ridge_milp",
+      "n_weeks": 12,
+      "block_length_weeks": 3,
+      "n_resamples": 10000,
+      "confidence_level": 0.95,
+      "observed_mean_weekly_diff": 0.0,
+      "observed_total_diff": 0.0,
+      "bootstrap_se_weekly_diff": 0.0,
+      "ci_lower_weekly_diff": 0.0,
+      "ci_upper_weekly_diff": 0.0,
+      "ci_lower_total_diff": 0.0,
+      "ci_upper_total_diff": 0.0,
+      "prob_positive_improvement": 0.0
+    }
+  }
+}

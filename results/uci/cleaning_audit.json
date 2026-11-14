@@ -1,0 +1,23 @@
+{
+  "raw_rows_total": 1067371,
+  "rows_per_sheet": {
+    "Year 2010-2011": 541910,
+    "Year 2009-2010": 525461
+  },
+  "dropped_missing_required": 0,
+  "dropped_exact_duplicate_rows": 34337,
+  "dropped_cancellations_and_adjustments": 19110,
+  "dropped_nonpositive_quantity": 3393,
+  "dropped_nonpositive_price": 2621,
+  "dropped_admin_stock_codes": 4574,
+  "valid_rows_before_pair_dedup": 1003336,
+  "dropped_duplicate_invoice_sku_lines": 11302,
+  "valid_unique_invoice_sku_pairs": 992034,
+  "retained_missing_customer_id_pairs": 225955,
+  "weekend_folded_pairs": 128945,
+  "complete_weeks_count": 105,
+  "complete_weekdays_count": 525,
+  "first_complete_monday": "2009-12-07",
+  "last_complete_friday": "2011-12-09",
+  "sql_engine_used": "duckdb"
+}

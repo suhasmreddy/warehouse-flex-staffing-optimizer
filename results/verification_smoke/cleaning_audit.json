@@ -1,0 +1,23 @@
+{
+  "raw_rows_total": 30030,
+  "rows_per_sheet": {
+    "Year 2009-2010": 15083,
+    "Year 2010-2011": 14947
+  },
+  "dropped_missing_required": 0,
+  "dropped_exact_duplicate_rows": 883,
+  "dropped_cancellations_and_adjustments": 553,
+  "dropped_nonpositive_quantity": 190,
+  "dropped_nonpositive_price": 0,
+  "dropped_admin_stock_codes": 360,
+  "valid_rows_before_pair_dedup": 28044,
+  "dropped_duplicate_invoice_sku_lines": 0,
+  "valid_unique_invoice_sku_pairs": 28044,
+  "retained_missing_customer_id_pairs": 6320,
+  "weekend_folded_pairs": 1592,
+  "complete_weeks_count": 105,
+  "complete_weekdays_count": 525,
+  "first_complete_monday": "2009-12-07",
+  "last_complete_friday": "2011-12-09",
+  "sql_engine_used": "sqlite3_compat"
+}

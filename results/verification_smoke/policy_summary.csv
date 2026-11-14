@@ -1,0 +1,5 @@
+policy_key,policy_label,forecast_wape_pct,total_modeled_backlog_line_days,total_friday_backlog_lines,total_objective_cost,mean_weekly_objective_cost,rel_improvement_vs_flat_pct,objective_gap_vs_oracle,oracle_gain_captured_pct,weeks_won_vs_flat,weeks_tied_vs_flat,weeks_lost_vs_flat,solver_backend
+flat,Flat Staffing (2-2-2-2-2),,2515.0,726.0,4693.0,391.0833333333333,0.0,867.0,0.0,0,12,0,deterministic
+prev_week_milp,Previous-Week Forecast + MILP,38.46153846153847,2248.0,831.0,4741.0,395.0833333333333,-1.0227999147666738,915.0,-5.536332179930796,7,0,5,scipy:highs
+ridge_milp,Ridge Forecast + MILP,29.446298277158277,2200.0,786.0,4558.0,379.8333333333333,2.87662476028127,732.0,15.570934256055363,7,1,4,scipy:highs
+oracle_milp,Perfect-Foresight MILP (Oracle),0.0,1732.0,698.0,3826.0,318.8333333333333,18.474323460473045,0.0,100.0,12,0,0,scipy:highs

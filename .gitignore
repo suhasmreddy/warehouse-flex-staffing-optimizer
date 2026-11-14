@@ -1,0 +1,11 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Raw downloaded UCI workbook (re-fetched via `bash scripts/reproduce.sh`)
+data/raw/*.xlsx
+data/raw/*.zip
+data/fixtures/*.xlsx

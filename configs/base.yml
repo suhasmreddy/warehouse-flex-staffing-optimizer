@@ -1,0 +1,87 @@
+project:
+  name: "Warehouse Flex Staffing & Demand Forecasting Optimizer"
+  seed: 42
+
+dataset:
+  uci_id: 502
+  uci_page_url: "https://archive.ics.uci.edu/dataset/502/online+retail+ii"
+  uci_zip_url: "https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip"
+  raw_excel_path: "data/raw/online_retail_II.xlsx"
+  worksheets:
+    - "Year 2009-2010"
+    - "Year 2010-2011"
+  cleaning:
+    cancellation_prefixes:
+      - "C"
+      - "A"
+    min_quantity: 1
+    min_unit_price: 0.0001
+    admin_stock_codes:
+      - "POST"
+      - "DOT"
+      - "M"
+      - "D"
+      - "CRUK"
+      - "C2"
+      - "BANK CHARGES"
+      - "AMAZONFEE"
+      - "B"
+      - "S"
+      - "PADS"
+      - "SP1002"
+    admin_stock_prefixes:
+      - "TEST"
+      - "ADJUST"
+      - "GIFT_"
+
+splits:
+  min_lag_weeks: 52
+  validation_weeks: 8
+  test_weeks: 12
+
+forecasting:
+  lags_weeks:
+    - 1
+    - 4
+    - 52
+  ridge_alphas:
+    - 0.01
+    - 0.1
+    - 1.0
+    - 5.0
+    - 10.0
+    - 25.0
+    - 50.0
+    - 100.0
+    - 250.0
+    - 500.0
+    - 1000.0
+  clip_nonnegative: true
+
+optimization:
+  weekly_flex_hours: 40
+  block_hours: 4
+  weekly_blocks: 10
+  min_daily_blocks: 0
+  max_daily_blocks: 4
+  core_capacity_fraction: 0.70
+  flex_productivity_fraction: 0.15
+  initial_weekly_backlog: 0.0
+  friday_penalty: 3.0
+  solver_backend: "pyomo_highs"  # Falls back to embedded scipy_highs only when --allow-offline-fallback is passed
+
+sensitivity:
+  productivity_multipliers:
+    - 0.75
+    - 1.00
+    - 1.25
+  friday_penalties:
+    - 1.0
+    - 3.0
+    - 5.0
+
+bootstrap:
+  block_length_weeks: 3
+  n_resamples: 10000
+  confidence_level: 0.95
+  seed: 42

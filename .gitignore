@@ -9,3 +9,6 @@ venv/
 data/raw/*.xlsx
 data/raw/*.zip
 data/fixtures/*.xlsx
+
+# Local offline smoke scratch directory (primary published UCI evidence lives in results/uci/)
+results/verification_smoke/

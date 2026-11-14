@@ -1,13 +1,16 @@
-"""Tests for MILP solver status, integrality, zero-demand, overload, and brute-force equivalence."""
+"""Tests for MILP solver status, integrality, training capacity calibration, and brute-force equivalence."""
 
 from __future__ import annotations
 
+import datetime as dt
 import unittest
 
 import numpy as np
+import pandas as pd
 
 from src.model import (
     StaffingParameters,
+    compute_training_capacity_reference,
     enumerate_optimal_schedule,
     solve_weekly_staffing_milp,
 )
@@ -42,13 +45,34 @@ class TestModelAndEnumerator(unittest.TestCase):
 
     def test_persistent_overload_frontloads_capacity(self) -> None:
         """Under unbroken daily overload, a Monday block saves backlog across all 5 days + 3*Fri."""
-        forecast = [2500.0, 2500.0, 2500.0, 2500.0, 2500.0]  # >> C + 4*q = 1300 every day
+        forecast = [2500.0, 2500.0, 2500.0, 2500.0, 2500.0]
         sol = solve_weekly_staffing_milp(forecast, self.params, allow_offline_fallback=True)
         enum_res = enumerate_optimal_schedule(forecast, self.params)
 
         self.assertEqual(sol.blocks, (4, 4, 2, 0, 0))
         self.assertEqual(enum_res.all_optimal_schedules, [(4, 4, 2, 0, 0)])
         self.assertAlmostEqual(sol.objective_value, enum_res.optimal_objective, places=5)
+
+    def test_training_capacity_reference_ignores_post_training_weeks(self) -> None:
+        """Mutating validation/test weeks must have zero effect on training capacity calibration."""
+        dates = pd.bdate_range("2010-09-06", periods=100, freq="B")
+        df = pd.DataFrame(
+            {
+                "operational_date": dates.date,
+                "week_idx": np.arange(100) // 5,
+                "booked_lines": np.linspace(1000.0, 3000.0, 100),
+            }
+        )
+        ref_clean, util_clean = compute_training_capacity_reference(
+            df, initial_train_end_week_idx=14, regime="train_p90_quantile"
+        )
+        df_mut = df.copy()
+        df_mut.loc[df_mut["week_idx"] > 14, "booked_lines"] = 9_999_999.0
+        ref_mut, util_mut = compute_training_capacity_reference(
+            df_mut, initial_train_end_week_idx=14, regime="train_p90_quantile"
+        )
+        self.assertEqual(ref_clean, ref_mut)
+        self.assertEqual(util_clean, util_mut)
 
     def test_milp_matches_brute_force_across_random_and_penalty_cases(self) -> None:
         rng = np.random.default_rng(12345)

@@ -10,8 +10,6 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-# Guard against running `python src/cli.py` directly, which would put `src/`
-# at sys.path[0] and shadow Python's stdlib `calendar` module.
 _THIS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _THIS_DIR.parent
 if str(_THIS_DIR) in sys.path:
@@ -19,17 +17,26 @@ if str(_THIS_DIR) in sys.path:
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+import pandas as pd
 import yaml
 
 from src.charts import (
+    plot_capacity_regimes,
     plot_flat_vs_optimized_schedules,
     plot_predicted_vs_actual,
     plot_sensitivity_results,
     plot_weekly_backlog_costs,
 )
 from src.forecast import run_chronological_forecasting
-from src.model import StaffingParameters, enumerate_optimal_schedule, solve_weekly_staffing_milp
+from src.model import (
+    CAPACITY_REGIME_LABELS,
+    StaffingParameters,
+    compute_training_capacity_reference,
+    enumerate_optimal_schedule,
+    solve_weekly_staffing_milp,
+)
 from src.replay import (
+    evaluate_capacity_regimes,
     evaluate_four_policies,
     paired_moving_block_bootstrap,
     run_sensitivity_grid,
@@ -79,32 +86,66 @@ def download_uci_workbook(cfg: dict, target_override: str | None = None) -> Path
 def run_pipeline(
     config_path: str | Path = "configs/base.yml",
     excel_path_override: str | None = None,
-    output_dir: str | Path = "results",
+    from_daily_csv: str | Path | None = None,
+    output_dir: str | Path = "results/uci",
     dataset_mode: str = "uci_online_retail_ii",
     allow_offline_fallback: bool = False,
     download_if_missing: bool = False,
 ) -> dict:
-    """Execute full cleaning, forecasting, MILP staffing, replay, sensitivity, bootstrap, and plotting."""
+    """Execute full cleaning (or cached daily CSV load), forecasting, MILP, regimes, sensitivity, and plots."""
     cfg = load_config(config_path)
     out_dir = Path(output_dir)
     fig_dir = out_dir / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
 
-    excel_path = Path(excel_path_override or cfg["dataset"]["raw_excel_path"])
-    if download_if_missing and not excel_path.exists():
-        download_uci_workbook(cfg, str(excel_path))
+    if from_daily_csv is not None:
+        csv_path = Path(from_daily_csv)
+        print(f"[1/6] Loading pre-aggregated daily workload spine from {csv_path} ...")
+        daily_df = pd.read_csv(csv_path)
+        daily_df["operational_date"] = pd.to_datetime(daily_df["operational_date"]).dt.date
+        daily_df["week_monday"] = pd.to_datetime(daily_df["week_monday"]).dt.date
+        daily_df["iso_weekday"] = daily_df["iso_weekday"].astype(int)
+        daily_df["week_idx"] = daily_df["week_idx"].astype(int)
 
-    print(f"[1/6] Loading Excel worksheets from {excel_path} ...")
-    raw_df = load_excel_worksheets(excel_path, worksheets=cfg["dataset"]["worksheets"])
+        existing_audit_path = out_dir / "cleaning_audit.json"
+        existing_manifest_path = out_dir / "run_manifest.json"
+        if existing_audit_path.exists():
+            cleaning_audit_dict = json.loads(existing_audit_path.read_text(encoding="utf-8"))
+        else:
+            cleaning_audit_dict = {
+                "source_daily_csv": str(csv_path),
+                "complete_weeks_count": int(len(daily_df) // 5),
+                "complete_weekdays_count": int(len(daily_df)),
+            }
+        prev_sha = None
+        if existing_manifest_path.exists():
+            prev_sha = json.loads(existing_manifest_path.read_text(encoding="utf-8")).get(
+                "input_workbook_sha256"
+            )
+        workbook_sha = prev_sha or f"daily_csv_sha256:{sha256_file(csv_path)}"
+        input_source_str = str(csv_path)
+        if csv_path.resolve() != (out_dir / "daily_workload.csv").resolve():
+            daily_df.to_csv(out_dir / "daily_workload.csv", index=False)
+        print("[2/6] Verified contiguous 5-day operational calendar spine ...")
+    else:
+        excel_path = Path(excel_path_override or cfg["dataset"]["raw_excel_path"])
+        if download_if_missing and not excel_path.exists():
+            download_uci_workbook(cfg, str(excel_path))
 
-    print("[2/6] Executing SQL workload cleaning & weekend-to-Monday aggregation ...")
-    daily_df, cleaning_audit = aggregate_daily_workload(
-        raw_df=raw_df,
-        sql_path=_REPO_ROOT / "sql" / "workload.sql",
-        allow_sqlite_fallback=allow_offline_fallback,
-    )
-    daily_df.to_csv(out_dir / "daily_workload.csv", index=False)
+        print(f"[1/6] Loading Excel worksheets from {excel_path} ...")
+        raw_df = load_excel_worksheets(excel_path, worksheets=cfg["dataset"]["worksheets"])
+
+        print("[2/6] Executing SQL workload cleaning & weekend-to-Monday aggregation ...")
+        daily_df, cleaning_audit = aggregate_daily_workload(
+            raw_df=raw_df,
+            sql_path=_REPO_ROOT / "sql" / "workload.sql",
+            allow_sqlite_fallback=allow_offline_fallback,
+        )
+        daily_df.to_csv(out_dir / "daily_workload.csv", index=False)
+        cleaning_audit_dict = cleaning_audit.to_dict()
+        workbook_sha = sha256_file(excel_path)
+        input_source_str = str(excel_path)
 
     print("[3/6] Running chronological Friday-origin forecasting (8-wk val, 12-wk sealed test) ...")
     fc_out = run_chronological_forecasting(
@@ -118,8 +159,26 @@ def run_pipeline(
     fc_out.test_predictions.to_csv(out_dir / "test_predictions.csv", index=False)
 
     opt_cfg = cfg["optimization"]
-    params = StaffingParameters.from_initial_training_median(
-        median_daily_lines=fc_out.initial_train_median_daily_lines,
+    primary_regime = str(opt_cfg.get("primary_capacity_regime", "train_p90_quantile"))
+    regime_list = list(
+        opt_cfg.get(
+            "capacity_regimes",
+            [
+                "train_p50_median",
+                "train_q4_peak_median",
+                "train_p90_quantile",
+                "train_p95_quantile",
+            ],
+        )
+    )
+
+    ref_daily_lines, train_q4_med_util = compute_training_capacity_reference(
+        daily_df=daily_df,
+        initial_train_end_week_idx=fc_out.initial_train_end_week_idx,
+        regime=primary_regime,
+    )
+    params = StaffingParameters.from_reference_daily_lines(
+        reference_daily_lines=ref_daily_lines,
         core_fraction=float(opt_cfg["core_capacity_fraction"]),
         flex_fraction=float(opt_cfg["flex_productivity_fraction"]),
         weekly_blocks=int(opt_cfg["weekly_blocks"]),
@@ -131,8 +190,8 @@ def run_pipeline(
     )
 
     print(
-        f"[4/6] Solving 5-day MILP (C={params.core_capacity_c}, q={params.flex_productivity_q}) "
-        "& replaying frozen schedules across 4 policies ..."
+        f"[4/6] Solving 5-day MILP under {primary_regime} (ref={ref_daily_lines:.1f}, "
+        f"C={params.core_capacity_c}, q={params.flex_productivity_q}) & evaluating 4 capacity regimes ..."
     )
     summary_df, weekly_df, daily_sched_df = evaluate_four_policies(
         test_predictions_df=fc_out.test_predictions,
@@ -145,7 +204,23 @@ def run_pipeline(
     weekly_df.to_csv(out_dir / "weekly_test_results.csv", index=False)
     daily_sched_df.to_csv(out_dir / "daily_test_schedules.csv", index=False)
 
-    # Independent brute-force check explicitly recorded on held-out Test Week 1
+    regimes_df = evaluate_capacity_regimes(
+        daily_df=daily_df,
+        initial_train_end_week_idx=fc_out.initial_train_end_week_idx,
+        test_predictions_df=fc_out.test_predictions,
+        regimes=regime_list,
+        core_fraction=float(opt_cfg["core_capacity_fraction"]),
+        flex_fraction=float(opt_cfg["flex_productivity_fraction"]),
+        weekly_blocks=int(opt_cfg["weekly_blocks"]),
+        min_daily_blocks=int(opt_cfg["min_daily_blocks"]),
+        max_daily_blocks=int(opt_cfg["max_daily_blocks"]),
+        initial_backlog=float(opt_cfg["initial_weekly_backlog"]),
+        friday_penalty=float(opt_cfg["friday_penalty"]),
+        solver_backend=str(opt_cfg["solver_backend"]),
+        allow_offline_fallback=allow_offline_fallback,
+    )
+    regimes_df.to_csv(out_dir / "capacity_regimes.csv", index=False)
+
     wk1_pred = (
         fc_out.test_predictions.loc[
             fc_out.test_predictions["week_idx"] == fc_out.test_week_indices[0]
@@ -202,7 +277,7 @@ def run_pipeline(
     )
 
     label_tag = (
-        "UCI Online Retail II (ID 502)"
+        f"UCI Online Retail II (ID 502) — Train P90 Capacity (C={params.core_capacity_c:,}, q={params.flex_productivity_q:,})"
         if dataset_mode == "uci_online_retail_ii"
         else "Synthetic Two-Sheet Verification Fixture (NOT UCI Empirical)"
     )
@@ -231,20 +306,33 @@ def run_pipeline(
         dataset_label=label_tag,
         out_path=fig_dir / "sensitivity_heatmap.png",
     )
+    plot_capacity_regimes(
+        regimes_df=regimes_df,
+        dataset_label="UCI Online Retail II (ID 502)"
+        if dataset_mode == "uci_online_retail_ii"
+        else "Synthetic Fixture",
+        out_path=fig_dir / "capacity_regimes_comparison.png",
+    )
 
     manifest = {
         "dataset_mode": dataset_mode,
         "is_uci_empirical_run": bool(dataset_mode == "uci_online_retail_ii"),
-        "input_workbook_path": str(excel_path),
-        "input_workbook_sha256": sha256_file(excel_path),
-        "cleaning_audit": cleaning_audit.to_dict(),
+        "input_source": input_source_str,
+        "input_workbook_sha256": workbook_sha,
+        "cleaning_audit": cleaning_audit_dict,
         "capacity_calibration": {
+            "primary_regime": primary_regime,
+            "primary_regime_label": CAPACITY_REGIME_LABELS.get(primary_regime, primary_regime),
             "initial_train_median_daily_lines": fc_out.initial_train_median_daily_lines,
+            "primary_train_reference_daily_lines": ref_daily_lines,
+            "train_2010_q4_median_weekly_utilization": train_q4_med_util,
             "core_daily_capacity_C_lines": params.core_capacity_c,
             "flex_block_productivity_q_lines": params.flex_productivity_q,
+            "total_weekly_capacity_lines": params.total_weekly_capacity,
             "synthetic_disclaimer": (
-                "C and q are synthetic capacity parameters calibrated solely from initial-training "
-                "median daily booked order lines. Real warehouse pick rates and staffing are unobserved."
+                "C and q are synthetic capacity parameters calibrated strictly from pre-validation "
+                "initial-training daily booked order lines (zero validation/test peeking). "
+                "Real warehouse pick rates and staffing are unobserved."
             ),
         },
         "forecasting": {
@@ -274,7 +362,7 @@ def run_pipeline(
     }
 
     with (out_dir / "cleaning_audit.json").open("w", encoding="utf-8") as fh:
-        json.dump(cleaning_audit.to_dict(), fh, indent=2)
+        json.dump(cleaning_audit_dict, fh, indent=2)
     with (out_dir / "bootstrap_ci.json").open("w", encoding="utf-8") as fh:
         json.dump(manifest["bootstrap_exploratory_95ci"], fh, indent=2)
     with (out_dir / "run_manifest.json").open("w", encoding="utf-8") as fh:
@@ -297,6 +385,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_p = sub.add_parser("run", help="Execute end-to-end SQL, forecast, MILP, replay, and charts")
     run_p.add_argument("--config", default="configs/base.yml")
     run_p.add_argument("--excel-path", default=None, help="Override path to two-sheet .xlsx input")
+    run_p.add_argument(
+        "--from-daily-csv",
+        default=None,
+        help="Reproduce forecasting, MILP, regimes, sensitivity, bootstrap & plots from committed daily_workload.csv without needing the 43.5 MB Excel download",
+    )
     run_p.add_argument("--output-dir", default="results/uci")
     run_p.add_argument(
         "--dataset-mode",
@@ -326,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
         run_pipeline(
             config_path=args.config,
             excel_path_override=args.excel_path,
+            from_daily_csv=args.from_daily_csv,
             output_dir=args.output_dir,
             dataset_mode=args.dataset_mode,
             allow_offline_fallback=args.allow_offline_fallback,

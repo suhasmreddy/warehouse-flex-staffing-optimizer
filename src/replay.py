@@ -1,4 +1,4 @@
-"""Frozen-schedule queue replay, four-policy comparison, sensitivity grid, and block bootstrap."""
+"""Frozen-schedule queue replay, policy comparison, capacity-regime suite, sensitivity, and bootstrap."""
 
 from __future__ import annotations
 
@@ -10,7 +10,9 @@ import pandas as pd
 
 from src.forecast import compute_wape
 from src.model import (
+    CAPACITY_REGIME_LABELS,
     StaffingParameters,
+    compute_training_capacity_reference,
     enumerate_optimal_schedule,
     solve_weekly_staffing_milp,
 )
@@ -68,11 +70,7 @@ def replay_weekly_queue(
     realized_workload: Sequence[float],
     params: StaffingParameters,
 ) -> WeeklyReplayOutcome:
-    """Independently replay daily Lindley backlog using frozen blocks and realized demand.
-
-    Queue evolution (resetting weekly to ``params.initial_backlog = 0`` on Monday morning):
-        b_d = max(0, b_{d-1} + actual_d - C - q_eff * x_d),   d = 0..4
-    """
+    """Independently replay daily Lindley backlog using frozen blocks and realized demand."""
     if len(frozen_blocks) != 5 or len(realized_workload) != 5:
         raise ValueError("Both frozen_blocks and realized_workload must have length 5.")
 
@@ -116,20 +114,7 @@ def evaluate_four_policies(
     allow_offline_fallback: bool = False,
     verify_with_enumerator: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Evaluate Flat, Prev-Week+MILP, Ridge+MILP, and Oracle MILP on identical test weeks.
-
-    Freezes all forecast-driven staffing decisions BEFORE revealing actual realized
-    test workload to the queue replay engine.
-
-    Returns
-    -------
-    summary_df : pd.DataFrame
-        Aggregate 4-policy metrics across all held-out test weeks.
-    weekly_df : pd.DataFrame
-        Week-by-week outcomes for every held-out test week (including weeks where MILP loses).
-    daily_schedule_df : pd.DataFrame
-        Day-level frozen block assignments and realized backlogs for all 4 policies.
-    """
+    """Evaluate Flat, Prev-Week+MILP, Ridge+MILP, and Oracle MILP on identical test weeks."""
     df = test_predictions_df.sort_values("operational_date").reset_index(drop=True)
     if len(df) % 5 != 0:
         raise ValueError("test_predictions_df must consist of complete 5-day weeks.")
@@ -148,7 +133,6 @@ def evaluate_four_policies(
         pred_prev = wk_slice["pred_prev_week"].to_numpy(dtype=float)
         pred_ridge = wk_slice["pred_ridge"].to_numpy(dtype=float)
 
-        # STEP 1: Freeze non-oracle schedules strictly BEFORE reading realized workload
         flat_sched = (2, 2, 2, 2, 2)
         sol_prev = solve_weekly_staffing_milp(
             pred_prev,
@@ -172,7 +156,6 @@ def evaluate_four_policies(
                     f"vs brute_force={enum_ridge.optimal_objective}"
                 )
 
-        # STEP 2: Reveal actual booked workload for ex-post replay and oracle lower bound
         actual_y = wk_slice["booked_lines"].to_numpy(dtype=float)
         sol_oracle = solve_weekly_staffing_milp(
             actual_y,
@@ -192,7 +175,6 @@ def evaluate_four_policies(
             for pol, sched in schedules.items()
         }
 
-        # Mathematical lower-bound invariant: Oracle cost <= every feasible policy's cost
         oracle_cost = replays["oracle_milp"].weekly_objective_cost
         for pol, rep in replays.items():
             if oracle_cost > rep.weekly_objective_cost + 1e-6:
@@ -253,7 +235,6 @@ def evaluate_four_policies(
     weekly_df = pd.DataFrame(weekly_rows)
     daily_schedule_df = pd.DataFrame(daily_rows)
 
-    # Aggregate summary across all held-out weeks
     flat_total_obj = float(weekly_df["flat_objective_cost"].sum())
     oracle_total_obj = float(weekly_df["oracle_milp_objective_cost"].sum())
     oracle_max_gain = flat_total_obj - oracle_total_obj
@@ -306,12 +287,100 @@ def evaluate_four_policies(
                 "weeks_won_vs_flat": wins,
                 "weeks_tied_vs_flat": ties,
                 "weeks_lost_vs_flat": losses,
+                "unique_weekly_schedules": int(weekly_df[f"{pol}_blocks"].nunique()),
                 "solver_backend": "deterministic" if pol == "flat" else solver_used_label,
             }
         )
 
     summary_df = pd.DataFrame(summary_rows)
     return summary_df, weekly_df, daily_schedule_df
+
+
+def evaluate_capacity_regimes(
+    daily_df: pd.DataFrame,
+    initial_train_end_week_idx: int,
+    test_predictions_df: pd.DataFrame,
+    regimes: Sequence[str] = (
+        "train_p50_median",
+        "train_q4_peak_median",
+        "train_p90_quantile",
+        "train_p95_quantile",
+    ),
+    core_fraction: float = 0.70,
+    flex_fraction: float = 0.15,
+    weekly_blocks: int = 10,
+    min_daily_blocks: int = 0,
+    max_daily_blocks: int = 4,
+    initial_backlog: float = 0.0,
+    friday_penalty: float = 3.0,
+    solver_backend: str = "pyomo_highs",
+    allow_offline_fallback: bool = False,
+) -> pd.DataFrame:
+    """Evaluate strictly training-calibrated capacity regimes side-by-side on identical test weeks."""
+    rows: list[dict] = []
+    for reg_key in regimes:
+        ref_val, train_q4_util = compute_training_capacity_reference(
+            daily_df=daily_df,
+            initial_train_end_week_idx=initial_train_end_week_idx,
+            regime=reg_key,
+        )
+        reg_params = StaffingParameters.from_reference_daily_lines(
+            reference_daily_lines=ref_val,
+            core_fraction=core_fraction,
+            flex_fraction=flex_fraction,
+            weekly_blocks=weekly_blocks,
+            min_daily_blocks=min_daily_blocks,
+            max_daily_blocks=max_daily_blocks,
+            initial_backlog=initial_backlog,
+            friday_penalty=friday_penalty,
+        )
+        summ_df, wk_df, _ = evaluate_four_policies(
+            test_predictions_df=test_predictions_df,
+            params=reg_params,
+            solver_backend=solver_backend,
+            allow_offline_fallback=allow_offline_fallback,
+            verify_with_enumerator=True,
+        )
+        by_pol = summ_df.set_index("policy_key")
+        flat_obj = float(by_pol.loc["flat", "total_objective_cost"])
+        prev_obj = float(by_pol.loc["prev_week_milp", "total_objective_cost"])
+        ridge_obj = float(by_pol.loc["ridge_milp", "total_objective_cost"])
+        oracle_obj = float(by_pol.loc["oracle_milp", "total_objective_cost"])
+
+        rows.append(
+            {
+                "regime_key": reg_key,
+                "regime_label": CAPACITY_REGIME_LABELS.get(reg_key, reg_key),
+                "train_reference_daily_lines": ref_val,
+                "core_capacity_C": reg_params.core_capacity_c,
+                "flex_productivity_q": reg_params.flex_productivity_q,
+                "total_weekly_capacity": reg_params.total_weekly_capacity,
+                "train_q4_median_utilization": train_q4_util,
+                "unique_prev_schedules": int(wk_df["prev_week_milp_blocks"].nunique()),
+                "unique_ridge_schedules": int(wk_df["ridge_milp_blocks"].nunique()),
+                "unique_oracle_schedules": int(wk_df["oracle_milp_blocks"].nunique()),
+                "flat_total_cost": flat_obj,
+                "prev_week_milp_total_cost": prev_obj,
+                "ridge_milp_total_cost": ridge_obj,
+                "oracle_milp_total_cost": oracle_obj,
+                "prev_vs_flat_improvement_pct": float(
+                    by_pol.loc["prev_week_milp", "rel_improvement_vs_flat_pct"]
+                ),
+                "ridge_vs_flat_improvement_pct": float(
+                    by_pol.loc["ridge_milp", "rel_improvement_vs_flat_pct"]
+                ),
+                "oracle_vs_flat_improvement_pct": float(
+                    by_pol.loc["oracle_milp", "rel_improvement_vs_flat_pct"]
+                ),
+                "ridge_vs_prev_improvement_pct": (
+                    ((prev_obj - ridge_obj) / prev_obj) * 100.0 if prev_obj > 0 else 0.0
+                ),
+                "ridge_wins_vs_flat": int(by_pol.loc["ridge_milp", "weeks_won_vs_flat"]),
+                "ridge_ties_vs_flat": int(by_pol.loc["ridge_milp", "weeks_tied_vs_flat"]),
+                "ridge_losses_vs_flat": int(by_pol.loc["ridge_milp", "weeks_lost_vs_flat"]),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def run_sensitivity_grid(
@@ -384,12 +453,7 @@ def paired_moving_block_bootstrap(
     confidence_level: float = 0.95,
     seed: int = 42,
 ) -> BlockBootstrapResult:
-    """Compute an exploratory circular moving-block bootstrap CI on paired weekly savings.
-
-    Positive ``diff_w = cost_baseline[w] - cost_candidate[w]`` means ``candidate``
-    reduced weekly objective cost relative to ``baseline``. Circular wrapping ensures
-    every held-out week has identical inclusion probability across overlapping blocks.
-    """
+    """Compute an exploratory circular moving-block bootstrap CI on paired weekly savings."""
     base_arr = np.asarray(cost_baseline, dtype=float)
     cand_arr = np.asarray(cost_candidate, dtype=float)
     if base_arr.shape != cand_arr.shape or base_arr.ndim != 1:
@@ -404,7 +468,6 @@ def paired_moving_block_bootstrap(
     obs_mean = float(np.mean(diffs))
     obs_total = float(np.sum(diffs))
 
-    # Circular moving blocks of length b_len so boundary weeks receive equal weight
     doubled = np.concatenate([diffs, diffs[: b_len - 1]])
     blocks = np.array([doubled[i : i + b_len] for i in range(n_weeks)], dtype=float)
 

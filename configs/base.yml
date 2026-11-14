@@ -64,11 +64,25 @@ optimization:
   weekly_blocks: 10
   min_daily_blocks: 0
   max_daily_blocks: 4
+  # Capacity calibration strictly on initial-training daily workload (week_idx <= W - 21):
+  # Because 7 of 8 quarters in initial training are off-peak spring/summer while the
+  # held-out Q4 peak period runs ~2x higher, sizing Q4 staffing to the year-round P50
+  # median (1,514 lines/day) yields 185% median utilization on 2010 Q4 training weeks
+  # and saturates every schedule to 4-4-2-0-0. Sizing to the initial-training P90 daily
+  # reference (2,954 lines/day) centers 2010 Q4 training utilization at 0.95 (near 1.0)
+  # without touching validation or test data. All 4 training-derived regimes below are
+  # evaluated side-by-side in results/uci/capacity_regimes.csv.
+  primary_capacity_regime: "train_p90_quantile"
+  capacity_regimes:
+    - "train_p50_median"
+    - "train_q4_peak_median"
+    - "train_p90_quantile"
+    - "train_p95_quantile"
   core_capacity_fraction: 0.70
   flex_productivity_fraction: 0.15
   initial_weekly_backlog: 0.0
   friday_penalty: 3.0
-  solver_backend: "pyomo_highs"  # Falls back to embedded scipy_highs only when --allow-offline-fallback is passed
+  solver_backend: "pyomo_highs"
 
 sensitivity:
   productivity_multipliers:

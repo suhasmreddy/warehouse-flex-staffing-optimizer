@@ -1,16 +1,20 @@
-"""Five-day warehouse flex staffing MILP (Pyomo + HiGHS) and independent brute-force verifier.
+"""Five-day warehouse flex staffing MILP (Pyomo + HiGHS), training capacity calibration, and verifier.
 
 Mathematical Formulation
 ------------------------
 Sets / Indices:
     d in D = {0, 1, 2, 3, 4}   Weekdays Monday (0) through Friday (4).
 
-Parameters (explicitly synthetic capacity calibration):
+Parameters (explicitly synthetic capacity calibration from initial-training data ONLY):
     f_d >= 0        Forecasted (or oracle) order-line arrivals on day d [lines/day].
-    C >= 0          Core daily picking capacity [lines/day], calibrated solely on initial
-                    training data as round(0.70 * median_initial_train_daily_lines).
-    q >= 1          Baseline flex productivity per 4-hour block [lines/block], calibrated
-                    as max(1, round(0.15 * median_initial_train_daily_lines)).
+    M_ref > 0       Reference daily order-line demand computed strictly on the pre-validation
+                    initial training set (default `train_p90_quantile` = 90th percentile of
+                    initial-training daily booked lines, sizing capacity to peak-season scale
+                    where historical 2010 Q4 training utilization is ~0.95 rather than 1.85x
+                    saturated under the off-peak year-round P50 median).
+    C >= 0          Core daily picking capacity [lines/day] = round(0.70 * M_ref).
+    q >= 1          Baseline flex productivity per 4-hour block [lines/block] =
+                    max(1, round(0.15 * M_ref)).
     m > 0           Sensitivity multiplier on flex productivity (default 1.0), yielding
                     effective productivity q_eff = m * q [lines/block].
     B = 10          Weekly flex budget in 4-hour blocks (40 flex labor hours / week).
@@ -39,7 +43,67 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
+import pandas as pd
 from scipy.optimize import Bounds, LinearConstraint, milp
+
+CAPACITY_REGIME_LABELS: dict[str, str] = {
+    "train_p50_median": "Initial-Train P50 Median (Off-Peak Saturated Baseline)",
+    "train_q4_peak_median": "Initial-Train Q4 Seasonal Median (Oct 1 - Dec 17)",
+    "train_p90_quantile": "Initial-Train P90 Quantile (Peak-Sized Primary)",
+    "train_p95_quantile": "Initial-Train P95 Quantile (High-Buffer Peak)",
+}
+
+
+def compute_training_capacity_reference(
+    daily_df: pd.DataFrame,
+    initial_train_end_week_idx: int,
+    regime: str = "train_p90_quantile",
+) -> tuple[float, float]:
+    """Compute reference daily demand strictly from pre-validation initial training data.
+
+    Returns ``(reference_daily_lines, train_q4_median_weekly_utilization)`` so capacity
+    assumptions can be audited purely against historical training congestion without
+    ever inspecting validation or sealed-test outcomes.
+    """
+    init_df = daily_df.loc[daily_df["week_idx"] <= initial_train_end_week_idx].copy()
+    if init_df.empty:
+        raise ValueError("Initial training slice is empty; cannot calibrate capacity.")
+    if init_df["week_idx"].max() > initial_train_end_week_idx:
+        raise AssertionError("Leakage guard triggered in compute_training_capacity_reference!")
+
+    lines = init_df["booked_lines"].to_numpy(dtype=float)
+    dates = pd.to_datetime(init_df["operational_date"])
+    months = dates.dt.month.to_numpy()
+    days = dates.dt.day.to_numpy()
+    is_q4 = (months == 10) | (months == 11) | ((months == 12) & (days <= 17))
+
+    if regime == "train_p50_median":
+        ref_val = float(np.quantile(lines, 0.50))
+    elif regime == "train_q4_peak_median":
+        q4_lines = lines[is_q4]
+        ref_val = float(np.median(q4_lines)) if len(q4_lines) > 0 else float(np.quantile(lines, 0.85))
+    elif regime == "train_p90_quantile":
+        ref_val = float(np.quantile(lines, 0.90))
+    elif regime == "train_p95_quantile":
+        ref_val = float(np.quantile(lines, 0.95))
+    else:
+        raise ValueError(
+            f"Unknown capacity regime '{regime}'. Expected one of {list(CAPACITY_REGIME_LABELS)}."
+        )
+
+    c_tmp = int(round(0.70 * ref_val))
+    q_tmp = max(1, int(round(0.15 * ref_val)))
+    wk_cap = float(5 * c_tmp + 10 * q_tmp)
+
+    q4_slice = init_df.loc[is_q4]
+    if not q4_slice.empty and wk_cap > 0:
+        q4_weekly_sums = q4_slice.groupby("week_idx")["booked_lines"].sum().to_numpy(dtype=float)
+        train_q4_med_util = float(np.median(q4_weekly_sums) / wk_cap)
+    else:
+        all_weekly_sums = init_df.groupby("week_idx")["booked_lines"].sum().to_numpy(dtype=float)
+        train_q4_med_util = float(np.median(all_weekly_sums) / wk_cap) if wk_cap > 0 else float("nan")
+
+    return ref_val, train_q4_med_util
 
 
 @dataclass(frozen=True)
@@ -59,10 +123,14 @@ class StaffingParameters:
     def effective_q(self) -> float:
         return float(self.flex_productivity_q) * float(self.productivity_multiplier)
 
+    @property
+    def total_weekly_capacity(self) -> float:
+        return 5.0 * float(self.core_capacity_c) + float(self.weekly_blocks) * self.effective_q
+
     @classmethod
-    def from_initial_training_median(
+    def from_reference_daily_lines(
         cls,
-        median_daily_lines: float,
+        reference_daily_lines: float,
         core_fraction: float = 0.70,
         flex_fraction: float = 0.15,
         weekly_blocks: int = 10,
@@ -72,8 +140,8 @@ class StaffingParameters:
         friday_penalty: float = 3.0,
         productivity_multiplier: float = 1.0,
     ) -> "StaffingParameters":
-        c_val = int(round(core_fraction * float(median_daily_lines)))
-        q_val = max(1, int(round(flex_fraction * float(median_daily_lines))))
+        c_val = int(round(core_fraction * float(reference_daily_lines)))
+        q_val = max(1, int(round(flex_fraction * float(reference_daily_lines))))
         return cls(
             core_capacity_c=c_val,
             flex_productivity_q=q_val,
@@ -84,6 +152,15 @@ class StaffingParameters:
             friday_penalty=friday_penalty,
             productivity_multiplier=productivity_multiplier,
         )
+
+    @classmethod
+    def from_initial_training_median(
+        cls,
+        median_daily_lines: float,
+        **kwargs,
+    ) -> "StaffingParameters":
+        """Backward-compatible alias delegating to ``from_reference_daily_lines``."""
+        return cls.from_reference_daily_lines(median_daily_lines, **kwargs)
 
 
 @dataclass(frozen=True)
@@ -228,12 +305,7 @@ def _solve_pyomo_highs(forecast: Sequence[float], params: StaffingParameters) ->
 
 
 def _solve_scipy_highs(forecast: Sequence[float], params: StaffingParameters) -> StaffingSolution:
-    """Solve the identical 10-variable MILP using SciPy's native C++ HiGHS wrapper.
-
-    Decision vector ordering: z = [x_0, x_1, x_2, x_3, x_4, b_0, b_1, b_2, b_3, b_4].
-    Used only when `--allow-offline-fallback` is enabled in air-gapped environments
-    without the `pyomo` Python wrapper installed.
-    """
+    """Solve the identical 10-variable MILP using SciPy's native C++ HiGHS wrapper."""
     f_vec = [max(0.0, float(v)) for v in forecast]
     if len(f_vec) != 5:
         raise ValueError(f"Expected 5 weekday forecasts, got {len(f_vec)}.")
@@ -247,8 +319,6 @@ def _solve_scipy_highs(forecast: Sequence[float], params: StaffingParameters) ->
     lb = np.array([float(params.min_daily_blocks)] * 5 + [0.0] * 5, dtype=float)
     ub = np.array([float(params.max_daily_blocks)] * 5 + [np.inf] * 5, dtype=float)
 
-    # Row 0: x_0 + x_1 + x_2 + x_3 + x_4 == weekly_blocks
-    # Rows 1..5 (d=0..4): q_eff * x_d + b_d - b_{d-1} >= f_d - C  (with b_{-1} = initial_backlog)
     A = np.zeros((6, 10), dtype=float)
     row_lb = np.zeros(6, dtype=float)
     row_ub = np.full(6, np.inf, dtype=float)
@@ -329,12 +399,7 @@ def enumerate_optimal_schedule(
     params: StaffingParameters,
     tie_tol: float = 1e-9,
 ) -> BruteForceEnumerationResult:
-    """Independently enumerate all feasible 5-day block schedules to verify MILP optimality.
-
-    For ``min_daily_blocks=0``, ``max_daily_blocks=4``, and ``weekly_blocks=10``,
-    there are exactly 381 feasible integer schedules in ``{0, 1, 2, 3, 4}^5``
-    whose sum equals 10.
-    """
+    """Independently enumerate all feasible 5-day block schedules to verify MILP optimality."""
     f_vec = [max(0.0, float(v)) for v in forecast]
     if len(f_vec) != 5:
         raise ValueError("enumerate_optimal_schedule expects a 5-day forecast sequence.")

@@ -1,7 +1,7 @@
 {
   "dataset_mode": "uci_online_retail_ii",
   "is_uci_empirical_run": true,
-  "input_workbook_path": "data/raw/online_retail_II.xlsx",
+  "input_source": "results/uci/daily_workload.csv",
   "input_workbook_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
   "cleaning_audit": {
     "raw_rows_total": 1067371,
@@ -27,45 +27,50 @@
     "sql_engine_used": "duckdb"
   },
   "capacity_calibration": {
+    "primary_regime": "train_p90_quantile",
+    "primary_regime_label": "Initial-Train P90 Quantile (Peak-Sized Primary)",
     "initial_train_median_daily_lines": 1514.0,
-    "core_daily_capacity_C_lines": 1060,
-    "flex_block_productivity_q_lines": 227,
-    "synthetic_disclaimer": "C and q are synthetic capacity parameters calibrated solely from initial-training median daily booked order lines. Real warehouse pick rates and staffing are unobserved."
+    "primary_train_reference_daily_lines": 2954.000000000001,
+    "train_2010_q4_median_weekly_utilization": 0.924949221394719,
+    "core_daily_capacity_C_lines": 2068,
+    "flex_block_productivity_q_lines": 443,
+    "total_weekly_capacity_lines": 14770.0,
+    "synthetic_disclaimer": "C and q are synthetic capacity parameters calibrated strictly from pre-validation initial-training daily booked order lines (zero validation/test peeking). Real warehouse pick rates and staffing are unobserved."
   },
   "forecasting": {
     "selected_ridge_alpha": 50.0,
     "validation_alpha_grid_wape": {
-      "0.01": 0.3043024107135195,
+      "0.01": 0.3043024107135194,
       "0.1": 0.30259593493146475,
-      "1.0": 0.28788688233662807,
-      "5.0": 0.25445378411157593,
-      "10.0": 0.23996801241823645,
-      "25.0": 0.2287891869510985,
-      "50.0": 0.22417307245485574,
-      "100.0": 0.2257983938754149,
-      "250.0": 0.23166012437257258,
-      "500.0": 0.24359681498372535,
-      "1000.0": 0.25826763061452845
+      "1.0": 0.28788688233662796,
+      "5.0": 0.2544537841115759,
+      "10.0": 0.23996801241823634,
+      "25.0": 0.22878918695109843,
+      "50.0": 0.22417307245485568,
+      "100.0": 0.22579839387541487,
+      "250.0": 0.23166012437257263,
+      "500.0": 0.24359681498372537,
+      "1000.0": 0.2582676306145284
     },
     "validation_prev_week_wape": 0.32651166968576434,
-    "validation_ridge_wape": 0.22417307245485574,
+    "validation_ridge_wape": 0.22417307245485568,
     "test_prev_week_wape": 0.21017001760648174,
-    "test_ridge_wape": 0.19561364906573242,
-    "ridge_backend_used": "scikit-learn"
+    "test_ridge_wape": 0.19561364906573245,
+    "ridge_backend_used": "scipy_closed_form"
   },
   "brute_force_verification_week1": {
     "feasible_schedules_checked": 381,
     "milp_blocks": [
-      4,
-      4,
-      2,
+      3,
+      1,
       0,
-      0
+      3,
+      3
     ],
-    "milp_objective": 15508.80291136257,
-    "enumerator_optimal_objective": 15508.80291136257,
+    "milp_objective": 0.0,
+    "enumerator_optimal_objective": 0.0,
     "milp_schedule_in_enumerator_optima": true,
-    "solver_backend_used": "pyomo:appsi_highs"
+    "solver_backend_used": "scipy:highs"
   },
   "bootstrap_exploratory_95ci": {
     "flat_minus_ridge_milp": {
@@ -74,13 +79,13 @@
       "block_length_weeks": 3,
       "n_resamples": 10000,
       "confidence_level": 0.95,
-      "observed_mean_weekly_diff": 2724.0,
-      "observed_total_diff": 32688.0,
-      "bootstrap_se_weekly_diff": 0.0,
-      "ci_lower_weekly_diff": 2724.0,
-      "ci_upper_weekly_diff": 2724.0,
-      "ci_lower_total_diff": 32688.0,
-      "ci_upper_total_diff": 32688.0,
+      "observed_mean_weekly_diff": 2588.0,
+      "observed_total_diff": 31056.0,
+      "bootstrap_se_weekly_diff": 814.3979168523671,
+      "ci_lower_weekly_diff": 1064.0270833333345,
+      "ci_upper_weekly_diff": 4231.5,
+      "ci_lower_total_diff": 12768.325000000015,
+      "ci_upper_total_diff": 50778.0,
       "prob_positive_improvement": 1.0
     },
     "flat_minus_prev_week_milp": {
@@ -89,14 +94,14 @@
       "block_length_weeks": 3,
       "n_resamples": 10000,
       "confidence_level": 0.95,
-      "observed_mean_weekly_diff": 2724.0,
-      "observed_total_diff": 32688.0,
-      "bootstrap_se_weekly_diff": 0.0,
-      "ci_lower_weekly_diff": 2724.0,
-      "ci_upper_weekly_diff": 2724.0,
-      "ci_lower_total_diff": 32688.0,
-      "ci_upper_total_diff": 32688.0,
-      "prob_positive_improvement": 1.0
+      "observed_mean_weekly_diff": 2702.6666666666665,
+      "observed_total_diff": 32432.0,
+      "bootstrap_se_weekly_diff": 985.529963728397,
+      "ci_lower_weekly_diff": 742.3333333333334,
+      "ci_upper_weekly_diff": 4551.583333333333,
+      "ci_lower_total_diff": 8908.0,
+      "ci_upper_total_diff": 54619.0,
+      "prob_positive_improvement": 0.9981
     },
     "prev_week_milp_minus_ridge_milp": {
       "comparison_name": "prev_week_milp_minus_ridge_milp",
@@ -104,14 +109,14 @@
       "block_length_weeks": 3,
       "n_resamples": 10000,
       "confidence_level": 0.95,
-      "observed_mean_weekly_diff": 0.0,
-      "observed_total_diff": 0.0,
-      "bootstrap_se_weekly_diff": 0.0,
-      "ci_lower_weekly_diff": 0.0,
-      "ci_upper_weekly_diff": 0.0,
-      "ci_lower_total_diff": 0.0,
-      "ci_upper_total_diff": 0.0,
-      "prob_positive_improvement": 0.0
+      "observed_mean_weekly_diff": -114.66666666666667,
+      "observed_total_diff": -1376.0,
+      "bootstrap_se_weekly_diff": 283.0630925492429,
+      "ci_lower_weekly_diff": -695.5833333333334,
+      "ci_upper_weekly_diff": 400.4541666666649,
+      "ci_lower_total_diff": -8347.0,
+      "ci_upper_total_diff": 4805.449999999979,
+      "prob_positive_improvement": 0.3645
     }
   }
 }
